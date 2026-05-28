@@ -4,6 +4,7 @@ from fli.models import (
     MaxStops, SortBy, FlightSearchFilters, FlightSegment
 )
 from fli.search import SearchFlights
+from deals import BaseCrawler, DealItem
 
 app = FastAPI(
     title="FlightPing Crawler",
@@ -15,6 +16,34 @@ app = FastAPI(
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/deals")
+def get_deals():
+    crawlers: list[BaseCrawler] = []
+    results: list[DealItem] = []
+    for crawler in crawlers:
+        try:
+            results.extend(crawler.crawl())
+        except Exception as e:
+            print(f"Crawler error ({crawler.__class__.__name__}): {e}")
+    return {
+        "deals": [
+            {
+                "airline": d.airline,
+                "title": d.title,
+                "departure": d.departure,
+                "dest": d.dest,
+                "flag": d.flag,
+                "price": d.price,
+                "sale_start": d.sale_start.isoformat(),
+                "sale_end": d.sale_end.isoformat(),
+                "booking_url": d.booking_url,
+                "color": d.color,
+            }
+            for d in results
+        ]
+    }
 
 
 @app.get("/flights")

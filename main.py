@@ -4,7 +4,7 @@ from fli.models import (
     MaxStops, SortBy, FlightSearchFilters, FlightSegment
 )
 from fli.search import SearchFlights
-from deals import BaseCrawler, DealItem
+from deals import BaseCrawler, DealItem, JejuAirCrawler
 
 app = FastAPI(
     title="FlightPing Crawler",
@@ -20,7 +20,7 @@ def health():
 
 @app.get("/deals")
 def get_deals():
-    crawlers: list[BaseCrawler] = []
+    crawlers: list[BaseCrawler] = [JejuAirCrawler()]
     results: list[DealItem] = []
     for crawler in crawlers:
         try:
@@ -40,6 +40,7 @@ def get_deals():
                 "sale_end": d.sale_end.isoformat(),
                 "booking_url": d.booking_url,
                 "color": d.color,
+                "image_url": d.image_url,
             }
             for d in results
         ]
@@ -48,8 +49,8 @@ def get_deals():
 
 @app.get("/flights")
 def get_flights(
-        departure: str = Query(..., description="출발 공항 코드 (예: ICN)"),
-        destination: str = Query(..., description="도착 공항 코드 (예: NRT)"),
+        departure: str = Query(..., description="출발 공항 코드"),
+        destination: str = Query(..., description="도착 공항 코드"),
         date: str = Query(..., description="출발 날짜 (YYYY-MM-DD)"),
 ):
     try:

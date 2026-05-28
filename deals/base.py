@@ -15,6 +15,7 @@ class DealItem:
     sale_end: date
     booking_url: str
     color: str
+    image_url: str
 
 
 class BaseCrawler(ABC):

@@ -5,7 +5,8 @@ from typing import Optional
 
 import httpx
 
-from .base import BaseCrawler, DealItem
+from notifier import send_slack_alert
+from .base import BaseCrawler, DealItem, RouteItem
 
 COLOR = '#FF5713'
 SCAN_END = 4000
@@ -57,6 +58,12 @@ class JejuAirCrawler(BaseCrawler):
             item = _parse(html, event_str)
             if item is None or item.sale_end < date.today():
                 return None
+            if _is_unhandled_price_structure(html, item.routes):
+                send_slack_alert(
+                    f':warning: 제주항공 미처리 구조 발생\n'
+                    f'이벤트: {BASE_URL}/ko/event/eventDetail.do?eventNo={event_str}\n'
+                    f'제목: {item.title}'
+                )
             return item
 
 
@@ -116,7 +123,7 @@ def _parse(html: str, event_str: str) -> Optional[DealItem]:
 
     # 예약 URL 목록
     booking_urls = re.findall(
-        r'data-(?:href|web-url|app-url|wmo-url)="(https?://[^"]+Availability[^"]+)"', html
+        r'data-(?:href|web-url|app-url|wmo-url)="\s*(https?://[^"]+Availability[^"]+)"', html
     )
     if not booking_urls:
         return None
@@ -130,25 +137,22 @@ def _parse(html: str, event_str: str) -> Optional[DealItem]:
     dep_code = dep_m.group(1)
     arr_code = arr_m.group(1)
 
-    # 최저가: 항공권 가격 패턴만 선별 수집 후 최솟값 사용
-    prices: list[int] = []
+    # 노선별 가격 파싱
+    routes = _parse_routes(html)
+    price = min(r.price for r in routes if r.price > 0) if routes else 0
 
-    # 1순위: amount-price 클래스 (가격 전용 요소)
-    for m in re.finditer(r'class="amount-price"[^>]*>([\d,]+)', html):
-        prices.append(int(m.group(1).replace(',', '')))
-
-    # 2순위: 표 셀의 class="normal" (가격 테이블)
-    for m in re.finditer(r'class="normal"[^>]*>([\d,]+)원', html):
-        prices.append(int(m.group(1).replace(',', '')))
-
-    # 3순위: N,NNN원~ 또는 N,NNN원 부터 (from-price 표기)
-    if not prices:
-        for m in re.finditer(r'([\d,]+)원\s*(?:~|부터)', html):
-            v = int(m.group(1).replace(',', ''))
-            if v >= 10000:
-                prices.append(v)
-
-    price = min(prices) if prices else 0
+    if not routes:
+        prices: list[int] = []
+        for m in re.finditer(r'class="amount-price"[^>]*>([\d,]+)', html):
+            prices.append(int(m.group(1).replace(',', '')))
+        for m in re.finditer(r'class="normal"[^>]*>([\d,]+)원', html):
+            prices.append(int(m.group(1).replace(',', '')))
+        if not prices:
+            for m in re.finditer(r'([\d,]+)원\s*(?:~|부터)', html):
+                v = int(m.group(1).replace(',', ''))
+                if v >= 10000:
+                    prices.append(v)
+        price = min(prices) if prices else 0
 
     # 예약 URL: 이벤트 상세 페이지
     booking_url = f'{BASE_URL}/ko/event/eventDetail.do?eventNo={event_str}'
@@ -170,7 +174,72 @@ def _parse(html: str, event_str: str) -> Optional[DealItem]:
         booking_url=booking_url,
         color=COLOR,
         image_url=image_url,
+        routes=routes,
     )
+
+
+def _parse_routes(html: str) -> list[RouteItem]:
+    """노선별 RouteItem 목록 파싱"""
+    routes: list[RouteItem] = []
+
+    # 링크형: event-price-link (amount-head + amount-price)
+    for link in re.findall(r'class="event-price-link"[^>]*>(.*?)</a>', html, re.DOTALL):
+        target_m = re.search(r'class="target"[^>]*>(.*?)</div>', link, re.DOTALL)
+        head_m = re.search(r'class="amount-head"[^>]*>(.*?)</div>', link, re.DOTALL)
+        price_m = re.search(r'class="amount-price"[^>]*>([\d,]+)', link)
+        if not target_m or not price_m:
+            continue
+        route_text = re.sub(r'<[^>]+>', '', target_m.group(1)).strip()
+        route_text = re.sub(r'\s*-\s*', '-', route_text)
+        route_text = re.sub(r'\s+', ' ', route_text)
+        trip_type = '왕복'
+        if head_m:
+            head_text = re.sub(r'<[^>]+>', '', head_m.group(1))
+            trip_type = '편도' if '편도' in head_text else '왕복'
+        price = int(price_m.group(1).replace(',', ''))
+        if route_text and price > 0:
+            routes.append(RouteItem(route_text=route_text, price=price, trip_type=trip_type))
+
+    if routes:
+        return routes
+
+    # 테이블형: air-line + span.normal
+    for table in re.findall(r'<table[^>]*>(.*?)</table>', html, re.DOTALL):
+        if 'air-line' not in table:
+            continue
+        head_m = re.search(r'class="event-tbl-head"[^>]*>(.*?)</th>', table, re.DOTALL)
+        if head_m:
+            head_text = re.sub(r'<[^>]+>', '', head_m.group(1))
+            trip_type = '편도' if '편도' in head_text else '왕복'
+        else:
+            trip_type = '왕복'
+        for row in re.findall(r'<tr[^>]*>(.*?)</tr>', table, re.DOTALL):
+            route_m = re.search(r'class="air-line"[^>]*>(.*?)</td>', row, re.DOTALL)
+            price_m = re.search(r'class="normal"[^>]*>([\d,]+)', row)
+            if not route_m or not price_m:
+                continue
+            route_text = re.sub(r'<[^>]+>', '', route_m.group(1))
+            route_text = re.sub(r'[✔✓✗]', '', route_text).strip()
+            route_text = re.sub(r'\s*-\s*', '-', route_text)
+            route_text = re.sub(r'\s+', ' ', route_text)
+            price = int(price_m.group(1).replace(',', ''))
+            if route_text and price > 0:
+                routes.append(RouteItem(route_text=route_text, price=price, trip_type=trip_type))
+
+    return routes
+
+
+def _is_unhandled_price_structure(html: str, routes: list[RouteItem]) -> bool:
+    if routes:
+        return False
+    if re.search(r'class="event-cupon-price"', html) and \
+       not re.search(r'class="(?:event-price-link|air-line)"', html):
+        return False
+    if re.search(r'class="event-price-link"', html):
+        return True
+    if re.search(r'class="air-line"', html) and re.search(r'class="amount-price"', html):
+        return True
+    return False
 
 
 def _make_headers() -> dict[str, str]:

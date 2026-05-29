@@ -26,6 +26,14 @@ def get_deals():
                 "booking_url": d.booking_url,
                 "color": d.color,
                 "image_url": d.image_url,
+                "routes": [
+                    {
+                        "route_text": r.route_text,
+                        "price": r.price,
+                        "trip_type": r.trip_type,
+                    }
+                    for r in d.routes
+                ],
             }
             for d in results
         ]

@@ -9,7 +9,6 @@ class DealItem:
     title: str
     departure: str
     dest: str
-    flag: str
     price: int
     sale_start: date
     sale_end: date

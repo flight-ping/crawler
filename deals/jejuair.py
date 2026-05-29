@@ -7,7 +7,6 @@ import httpx
 
 from .base import BaseCrawler, DealItem
 
-#상수
 COLOR = '#FF5713'
 SCAN_END = 4000
 SCAN_LOOKBACK = 300
@@ -16,7 +15,7 @@ BASE_URL = 'https://www.jejuair.net'
 DETAIL_API = '/ko/event/getEventDetail.json'
 
 
-#크롤러
+# 크롤러
 class JejuAirCrawler(BaseCrawler):
     """제주항공 이벤트 페이지에서 특가 공지 크롤링"""
 
@@ -67,17 +66,17 @@ def _is_special_deal(html: str) -> bool:
     이벤트 본문 전체를 검사하면 면책 문구에도 반응하여
     특가 이벤트가 아닌 멤버십/할인코드 이벤트를 오탐함
     """
-    #이벤트 제목
+    # 이벤트 제목
     nm_m = re.search(r'id="eventNm"\s+value="([^"]+)"', html)
     if nm_m and '특가' in nm_m.group(1):
         return True
 
-    #메인 배너 제목
+    # 메인 배너 제목
     for banner in re.findall(r'class="event-banner__title"[^>]*>(.*?)</p>', html, re.DOTALL):
         if '특가' in banner:
             return True
 
-    #섹션 앵커 헤더
+    # 섹션 앵커 헤더
     for anchor in re.findall(r'class="event-anchor-title"[^>]*>(.*?)</div>', html, re.DOTALL):
         if '특가' in anchor:
             return True
@@ -98,13 +97,13 @@ async def _fetch_event(client: httpx.AsyncClient, event_str: str) -> Optional[st
 
 
 def _parse(html: str, event_str: str) -> Optional[DealItem]:
-    #이벤트 제목
+    # 이벤트 제목
     title_m = re.search(r'id="eventNm"\s+value="([^"]+)"', html)
     if not title_m:
         return None
     title = title_m.group(1).strip()
 
-    #판매 기간
+    # 판매 기간
     date_m = re.search(
         r'event-banner__date[^>]*>\s*'
         r'(\d{4}\.\d{2}\.\d{2})\s*~\s*(\d{4}\.\d{2}\.\d{2})',
@@ -115,7 +114,7 @@ def _parse(html: str, event_str: str) -> Optional[DealItem]:
     sale_start = datetime.strptime(date_m.group(1), '%Y.%m.%d').date()
     sale_end = datetime.strptime(date_m.group(2), '%Y.%m.%d').date()
 
-    #예약 URL 목록
+    # 예약 URL 목록
     booking_urls = re.findall(
         r'data-(?:href|web-url|app-url|wmo-url)="(https?://[^"]+Availability[^"]+)"', html
     )
@@ -123,7 +122,7 @@ def _parse(html: str, event_str: str) -> Optional[DealItem]:
         return None
     primary_url = booking_urls[0].replace('&amp;', '&')
 
-    #출발지 / 도착지 공항 코드
+    # 출발지 / 도착지 공항 코드
     dep_m = re.search(r'depStn=([A-Z]{3})', primary_url)
     arr_m = re.search(r'arrStn=([A-Z]{3})', primary_url)
     if not dep_m or not arr_m:
@@ -131,22 +130,18 @@ def _parse(html: str, event_str: str) -> Optional[DealItem]:
     dep_code = dep_m.group(1)
     arr_code = arr_m.group(1)
 
-    departure = dep_code
-    dest = arr_code
-    flag = ''
-
-    #최저가: 항공권 가격 패턴만 선별 수집 후 최솟값 사용
+    # 최저가: 항공권 가격 패턴만 선별 수집 후 최솟값 사용
     prices: list[int] = []
 
-    #1순위: amount-price 클래스 (가격 전용 요소)
+    # 1순위: amount-price 클래스 (가격 전용 요소)
     for m in re.finditer(r'class="amount-price"[^>]*>([\d,]+)', html):
         prices.append(int(m.group(1).replace(',', '')))
 
-    #2순위: 표 셀의 class="normal" (가격 테이블)
+    # 2순위: 표 셀의 class="normal" (가격 테이블)
     for m in re.finditer(r'class="normal"[^>]*>([\d,]+)원', html):
         prices.append(int(m.group(1).replace(',', '')))
 
-    #3순위: N,NNN원~ 또는 N,NNN원 부터 (from-price 표기)
+    # 3순위: N,NNN원~ 또는 N,NNN원 부터 (from-price 표기)
     if not prices:
         for m in re.finditer(r'([\d,]+)원\s*(?:~|부터)', html):
             v = int(m.group(1).replace(',', ''))
@@ -155,10 +150,10 @@ def _parse(html: str, event_str: str) -> Optional[DealItem]:
 
     price = min(prices) if prices else 0
 
-    #예약 URL: 이벤트 상세 페이지
+    # 예약 URL: 이벤트 상세 페이지
     booking_url = f'{BASE_URL}/ko/event/eventDetail.do?eventNo={event_str}'
 
-    #배너 이미지 URL
+    # 배너 이미지 URL
     img_m = re.search(
         r'event-top-banner[^>]+background-image:\s*url\(([^)]+)\)', html
     )
@@ -167,9 +162,8 @@ def _parse(html: str, event_str: str) -> Optional[DealItem]:
     return DealItem(
         airline='제주항공',
         title=title,
-        departure=departure,
-        dest=dest,
-        flag=flag,
+        departure=dep_code,
+        dest=arr_code,
         price=price,
         sale_start=sale_start,
         sale_end=sale_end,

@@ -1,6 +1,13 @@
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
+
+
+@dataclass
+class RouteItem:
+    route_text: str
+    price: int
+    trip_type: str
 
 
 @dataclass
@@ -15,6 +22,7 @@ class DealItem:
     booking_url: str
     color: str
     image_url: str
+    routes: list[RouteItem] = field(default_factory=list)
 
 
 class BaseCrawler(ABC):

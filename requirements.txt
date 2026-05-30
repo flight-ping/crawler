@@ -2,3 +2,4 @@ fastapi
 uvicorn[standard]
 flights @ git+https://github.com/punitarani/fli.git
 httpx
+pandas

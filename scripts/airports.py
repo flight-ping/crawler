@@ -5,6 +5,8 @@ import re
 
 import httpx
 
+from scripts.countries import load_country_map
+
 BACKEND_URL = 'http://localhost:8080'
 
 KAC_ROUTEMAP_URL = 'https://www.airport.co.kr/gimpo/cms/frRouteMapCon/routeMap.do'
@@ -105,12 +107,16 @@ def seed(backend_url: str) -> None:
         if code in name_map:
             all_airports[code] = name_map[code]
 
+    iso_codes = {iata_iso[c] for c in all_airports if iata_iso.get(c)}
+    country_map = load_country_map(iso_codes)
+
     airports = []
     for code in sorted(all_airports):
         iso = iata_iso.get(code, '')
         if not iso:
             print(f'ISO 코드 없음: {code}({all_airports[code]})')
-        airports.append({'code': code, 'city': all_airports[code], 'isoCode': iso})
+        country_name = country_map.get(iso, {}).get('name', '')
+        airports.append({'code': code, 'city': all_airports[code], 'isoCode': iso, 'countryName': country_name})
 
     r = httpx.post(f'{backend_url}/api/internal/airports/seed', json=airports, timeout=30)
     r.raise_for_status()

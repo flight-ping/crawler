@@ -116,7 +116,8 @@ def seed(backend_url: str) -> None:
         if not iso:
             print(f'ISO 코드 없음: {code}({all_airports[code]})')
         country_name = country_map.get(iso, {}).get('name', '')
-        airports.append({'code': code, 'city': all_airports[code], 'isoCode': iso, 'countryName': country_name})
+        continent = country_map.get(iso, {}).get('continent', '')
+        airports.append({'code': code, 'city': all_airports[code], 'isoCode': iso, 'countryName': country_name, 'continent': continent})
 
     r = httpx.post(f'{backend_url}/api/internal/airports/seed', json=airports, timeout=30)
     r.raise_for_status()

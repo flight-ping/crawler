@@ -3,6 +3,8 @@ from pathlib import Path
 
 DATA_PATH = Path(__file__).parent.parent / 'data' / 'countries.csv'
 
+SOUTHEAST_ASIA = {'TH', 'VN', 'PH', 'ID', 'MY', 'SG', 'MM', 'KH', 'LA', 'BN'}
+
 
 def load_country_map(iso_codes: set[str] | None = None) -> dict[str, dict]:
     df = pd.read_csv(DATA_PATH, encoding='utf-8-sig')
@@ -14,6 +16,14 @@ def load_country_map(iso_codes: set[str] | None = None) -> dict[str, dict]:
     if iso_codes:
         df = df[df['iso2'].isin(iso_codes)]
     df = df.drop_duplicates(subset='iso2')
+    df['continent'] = df['continent'].replace({
+        '북아메리카': '미주',
+        '남아메리카': '미주',
+        '호주(오세아니아)': '남태평양',
+        '아시아': '동북아',
+        '아주': '동북아',
+    })
+    df.loc[df['iso2'].isin(SOUTHEAST_ASIA), 'continent'] = '동남아'
     return df.set_index('iso2')[['name', 'continent']].to_dict('index')
 
 

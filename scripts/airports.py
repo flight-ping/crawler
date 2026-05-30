@@ -1,5 +1,3 @@
-# 사용법: python scripts/seed_airports.py [--backend http://localhost:8080]
-
 import argparse
 import csv
 import io
@@ -67,7 +65,7 @@ def query_destinations(client: httpx.Client, dep_code: str) -> list[dict]:
                     results.append({'code': code, 'city': city})
         return results
     except Exception as e:
-        print(f'[WARN] {dep_code} API 호출 실패: {e}')
+        print(f'{dep_code} API 호출 실패: {e}')
         return []
 
 
@@ -75,20 +73,19 @@ def seed(backend_url: str) -> None:
     iata_iso = fetch_iata_iso_map()
 
     with httpx.Client(headers=KAC_HEADERS, timeout=15) as client:
-        print('KAC 노선도 파싱 중...')
+        print('KAC 노선도 파싱 중')
         page = client.get(KAC_ROUTEMAP_URL)
         initial = parse_departure_airports(page.text)
         name_map = parse_name_map(page.text)
 
         for code, name in initial:
-            name_map[code] = name  # select 이름 우선
+            name_map[code] = name
 
         queued: set[str] = {code for code, _ in initial}
         done: set[str] = set()
         all_airports: dict[str, str] = {}
-        all_routes: list[dict] = []  # (departureCode, arrivalCode) 쌍
+        all_routes: list[dict] = []
 
-        # KR 공항이 도착지로 발견되면 출발지로 추가해 재조회 (ICN 등 KAC 비관리 공항 커버)
         while queued:
             dep = queued.pop()
             done.add(dep)
@@ -104,31 +101,24 @@ def seed(backend_url: str) -> None:
             if dep not in all_airports:
                 all_airports[dep] = name_map.get(dep, dep)
 
-    # KAC 공식 한국어명 우선 적용
     for code in all_airports:
         if code in name_map:
             all_airports[code] = name_map[code]
 
-    # 공항 시딩
     airports = []
     for code in sorted(all_airports):
         iso = iata_iso.get(code, '')
         if not iso:
-            print(f'[WARN] ISO 코드 없음: {code}({all_airports[code]})')
+            print(f'ISO 코드 없음: {code}({all_airports[code]})')
         airports.append({'code': code, 'city': all_airports[code], 'isoCode': iso})
 
-    print(f'공항 {len(airports)}개 시딩 중...')
     r = httpx.post(f'{backend_url}/api/internal/airports/seed', json=airports, timeout=30)
     r.raise_for_status()
     result = r.json()
-    print(f'  → 신규: {result.get("created")}, 갱신: {result.get("updated")}')
 
-    # 노선 시딩
-    print(f'노선 {len(all_routes)}개 시딩 중...')
     r = httpx.post(f'{backend_url}/api/internal/routes/seed', json=all_routes, timeout=30)
     r.raise_for_status()
     result = r.json()
-    print(f'  → 신규: {result.get("created")}, 중복 스킵: {result.get("skipped")}')
 
 
 if __name__ == '__main__':

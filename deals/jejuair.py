@@ -138,7 +138,7 @@ def _parse(html: str, event_str: str) -> Optional[DealItem]:
     arr_code = arr_m.group(1)
 
     # 노선별 가격 파싱
-    routes = _parse_routes(html)
+    routes = _parse_routes(html, default_dep=dep_code, default_arr=arr_code)
     price = min(r.price for r in routes if r.price > 0) if routes else 0
 
     if not routes:
@@ -178,15 +178,22 @@ def _parse(html: str, event_str: str) -> Optional[DealItem]:
     )
 
 
-def _parse_routes(html: str) -> list[RouteItem]:
+def _extract_codes_from_url(url: str) -> tuple[str, str]:
+    dep_m = re.search(r'depStn=([A-Z]{3})', url)
+    arr_m = re.search(r'arrStn=([A-Z]{3})', url)
+    return (dep_m.group(1) if dep_m else '', arr_m.group(1) if arr_m else '')
+
+
+def _parse_routes(html: str, default_dep: str = '', default_arr: str = '') -> list[RouteItem]:
     """노선별 RouteItem 목록 파싱"""
     routes: list[RouteItem] = []
 
-    # 링크형: event-price-link (amount-head + amount-price)
-    for link in re.findall(r'class="event-price-link"[^>]*>(.*?)</a>', html, re.DOTALL):
-        target_m = re.search(r'class="target"[^>]*>(.*?)</div>', link, re.DOTALL)
-        head_m = re.search(r'class="amount-head"[^>]*>(.*?)</div>', link, re.DOTALL)
-        price_m = re.search(r'class="amount-price"[^>]*>([\d,]+)', link)
+    # 링크형: event-price-link — <a> 태그 속성에서 depStn/arrStn 추출 시도
+    for m in re.finditer(r'<a([^>]*class="event-price-link"[^>]*)>(.*?)</a>', html, re.DOTALL):
+        tag_attrs, inner = m.group(1), m.group(2)
+        target_m = re.search(r'class="target"[^>]*>(.*?)</div>', inner, re.DOTALL)
+        head_m = re.search(r'class="amount-head"[^>]*>(.*?)</div>', inner, re.DOTALL)
+        price_m = re.search(r'class="amount-price"[^>]*>([\d,]+)', inner)
         if not target_m or not price_m:
             continue
         route_text = re.sub(r'<[^>]+>', '', target_m.group(1)).strip()
@@ -197,13 +204,19 @@ def _parse_routes(html: str) -> list[RouteItem]:
             head_text = re.sub(r'<[^>]+>', '', head_m.group(1))
             trip_type = '편도' if '편도' in head_text else '왕복'
         price = int(price_m.group(1).replace(',', ''))
+        url_m = re.search(r'data-(?:href|web-url|app-url|wmo-url)="([^"]+Availability[^"]+)"', tag_attrs)
+        if url_m:
+            dep_code, arr_code = _extract_codes_from_url(url_m.group(1).replace('&amp;', '&'))
+        else:
+            dep_code, arr_code = default_dep, default_arr
         if route_text and price > 0:
-            routes.append(RouteItem(route_text=route_text, price=price, trip_type=trip_type))
+            routes.append(RouteItem(route_text=route_text, price=price, trip_type=trip_type,
+                                    dep_code=dep_code, arr_code=arr_code))
 
     if routes:
         return routes
 
-    # 테이블형: air-line + span.normal
+    # 테이블형: air-line + span.normal — 딜 레벨 코드 폴백
     for table in re.findall(r'<table[^>]*>(.*?)</table>', html, re.DOTALL):
         if 'air-line' not in table:
             continue
@@ -224,7 +237,8 @@ def _parse_routes(html: str) -> list[RouteItem]:
             route_text = re.sub(r'\s+', ' ', route_text)
             price = int(price_m.group(1).replace(',', ''))
             if route_text and price > 0:
-                routes.append(RouteItem(route_text=route_text, price=price, trip_type=trip_type))
+                routes.append(RouteItem(route_text=route_text, price=price, trip_type=trip_type,
+                                        dep_code=default_dep, arr_code=default_arr))
 
     return routes
 

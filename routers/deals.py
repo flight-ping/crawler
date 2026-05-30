@@ -31,6 +31,8 @@ def get_deals():
                         "route_text": r.route_text,
                         "price": r.price,
                         "trip_type": r.trip_type,
+                        "dep_code": r.dep_code,
+                        "arr_code": r.arr_code,
                     }
                     for r in d.routes
                 ],

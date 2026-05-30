@@ -8,6 +8,8 @@ class RouteItem:
     route_text: str
     price: int
     trip_type: str
+    dep_code: str = ''
+    arr_code: str = ''
 
 
 @dataclass

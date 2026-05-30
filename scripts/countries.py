@@ -24,6 +24,7 @@ def load_country_map(iso_codes: set[str] | None = None) -> dict[str, dict]:
         '아주': '동북아',
     })
     df.loc[df['iso2'].isin(SOUTHEAST_ASIA), 'continent'] = '동남아'
+    df.loc[df['iso2'] == 'KR', 'continent'] = '국내'
     return df.set_index('iso2')[['name', 'continent']].to_dict('index')
 
 
